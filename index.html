@@ -668,6 +668,24 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="script.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics.js";
+  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCuN1XmoD7kyRYQyna_bJ0WetZK19Ig_PU",
+    authDomain: "qsalon-80cea.firebaseapp.com",
+    projectId: "qsalon-80cea",
+    storageBucket: "qsalon-80cea.appspot.com",
+    messagingSenderId: "1074927060991",
+    appId: "1:1074927060991:web:70c7180e5c16a0c92d49ca"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  window.db = db; 
+</script>
 </body>
 </html>

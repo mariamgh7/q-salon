@@ -4,7 +4,6 @@ import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebas
 const firebaseConfig = {
     apiKey: "AIzaSyCuN1XmoD7kyRYQyna_bJ0WetZK19Ig_PU",
     authDomain: "qsalon-80cea.firebaseapp.com",
-    databaseURL: "https://qsalon-80cea-default-rtdb.firebaseio.com",
     projectId: "qsalon-80cea",
     storageBucket: "qsalon-80cea.firebasestorage.app",
     messagingSenderId: "1074927060991",

@@ -1,3 +1,6 @@
+import { db } from "./firebase.js";
+console.log("Firebase connected:", db);
+
 const SERVICES = {
   haircut: { name:'قص الشعر', price:5, duration:45, interval:60, capacity:2 },
   beard:   { name:'تشذيب اللحية', price:3, duration:30, interval:45, capacity:2 },
@@ -246,5 +249,3 @@ document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 document.querySelectorAll('.modal-overlay').forEach(ov => {
   ov.addEventListener('click', (e) => { if(e.target === ov) ov.classList.remove('active'); });
 });
-import { db } from "./firebase.js";
-console.log("Firebase connected:", db);

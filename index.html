@@ -671,16 +671,3 @@
 <script src="script.js"></script>
 </body>
 </html>
-
-/* ================= NOTE FOR REAL DEPLOYMENT =================
-   This demo stores bookings in localStorage so the flow works
-   fully offline in the browser preview. To make bookings shared
-   across every customer (as the brief requires), swap the
-   save/load functions below for Firebase Firestore calls, e.g.:
-
-   import { initializeApp } from "firebase/app";
-   import { getFirestore, collection, addDoc, getDocs } from "firebase/firestore";
-   const db = getFirestore(initializeApp(firebaseConfig));
-   // saveBooking -> addDoc(collection(db,"bookings"), booking)
-   // loadBookings -> getDocs(collection(db,"bookings"))
-================================================================ */

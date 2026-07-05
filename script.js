@@ -249,3 +249,12 @@ document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 document.querySelectorAll('.modal-overlay').forEach(ov => {
   ov.addEventListener('click', (e) => { if(e.target === ov) ov.classList.remove('active'); });
 });
+window.openBooking = openBooking;
+window.sendCode = sendCode;
+window.closeModal = closeModal;
+window.openModal = openModal;
+window.toggleMobileNav = toggleMobileNav;
+window.proceedBooking = proceedBooking;
+window.backToSlots = backToSlots;
+window.handleScreenshotUpload = handleScreenshotUpload;
+window.renderAdmin = renderAdmin;

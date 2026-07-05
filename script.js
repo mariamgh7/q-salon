@@ -1,5 +1,5 @@
 import { db } from "./firebase.js";
-console.log("Firebase connected:", db);
+import { collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const SERVICES = {
   haircut: { name:'قص الشعر', price:5, duration:45, interval:60, capacity:2 },
@@ -10,9 +10,10 @@ const SERVICES = {
 
 let currentService = null;
 let selectedSlot = null;
-let pendingService = null; // service the user tried to book before logging in
-let bookingStep = 1; // 1 = pick a slot, 2 = confirm CliQ deposit was paid
-let depositScreenshotData = null; // the uploaded transfer screenshot (data URL)
+let pendingService = null;
+let bookingStep = 1;
+let depositScreenshotData = null;
+let bookingsCache = []; // fetched ONCE per openBooking() call, reused for every slot check
 
 function openModal(id){ document.getElementById(id).classList.add('active'); }
 function closeModal(id){ document.getElementById(id).classList.remove('active'); }
@@ -33,7 +34,6 @@ function sendCode(){
   closeModal('loginModal');
   showToast('تم تسجيل الدخول برقم ' + phone);
 
-  // if the user was trying to book a service before logging in, resume that booking automatically
   if(pendingService){
     const resumeService = pendingService;
     pendingService = null;
@@ -41,32 +41,41 @@ function sendCode(){
   }
 }
 
-function loadBookings(){
-  return JSON.parse(localStorage.getItem('q_bookings') || '[]');
+async function loadBookings(){
+  const snapshot = await getDocs(collection(db, "bookings"));
+  // spread doc.data() FIRST, then doc.id — so the real Firestore ID always wins
+  // over any stray "id" field that might exist inside the saved data.
+  return snapshot.docs.map(doc => ({
+    ...doc.data(),
+    id: doc.id,
+  }));
 }
-function saveBookingRecord(b){
-  const all = loadBookings();
-  all.push(b);
-  localStorage.setItem('q_bookings', JSON.stringify(all));
+
+async function saveBookingRecord(b){
+  await addDoc(collection(db, "bookings"), {
+    ...b,
+    createdAt: Date.now(),
+  });
 }
 
 function generateSlots(service){
+  // stays sync — it never touches Firestore, no reason to await it
   const slots = [];
-  let startMin = 10*60; // 10:00
-  const endMin = 23*60; // 23:00
+  const startMin = 10 * 60; // 10:00
+  const endMin = 23 * 60;   // 23:00
   for(let t = startMin; t + service.duration <= endMin; t += service.interval){
-    const h = Math.floor(t/60), m = t%60;
-    slots.push(h.toString().padStart(2,'0') + ':' + m.toString().padStart(2,'0'));
+    const h = Math.floor(t / 60), m = t % 60;
+    slots.push(h.toString().padStart(2, '0') + ':' + m.toString().padStart(2, '0'));
   }
   return slots;
 }
 
 function countBookings(serviceKey, slot){
-  return loadBookings().filter(b => b.service === serviceKey && b.slot === slot).length;
+  // reads from the cache fetched once in openBooking() — no per-slot Firestore hit
+  return bookingsCache.filter(b => b.service === serviceKey && b.slot === slot).length;
 }
 
-function openBooking(serviceKey){
-  // not logged in yet? send them to the login modal first, then resume this exact booking
+async function openBooking(serviceKey){
   if(!localStorage.getItem('q_customer_phone')){
     pendingService = serviceKey;
     openModal('loginModal');
@@ -78,17 +87,32 @@ function openBooking(serviceKey){
   selectedSlot = null;
   bookingStep = 1;
   const s = SERVICES[serviceKey];
-  document.getElementById('bookingTitle').textContent = 'حجز: ' + s.name;
-  document.getElementById('bookingSub').textContent = 'السعر ' + s.price + ' دينار — اختر الوقت المناسب لك من 10 صباحًا حتى 11 مساءً.';
 
-  const slots = generateSlots(s);
+  document.getElementById('bookingTitle').textContent = 'حجز: ' + s.name;
+  document.getElementById('bookingSub').textContent = 'جاري تحميل الأوقات المتاحة...';
+  openModal('bookingModal');
+
   const container = document.getElementById('slotsContainer');
   container.style.display = 'block';
+  container.innerHTML = '';
+
+  try{
+    bookingsCache = await loadBookings(); // ONE Firestore read for the whole modal
+  }catch(err){
+    console.error('Firestore load failed', err);
+    bookingsCache = [];
+    showToast('تعذّر تحميل الأوقات، حاول مجددًا');
+  }
+
+  document.getElementById('bookingSub').textContent =
+    'السعر ' + s.price + ' دينار — اختر الوقت المناسب لك من 10 صباحًا حتى 11 مساءً.';
+
+  const slots = generateSlots(s);
   container.innerHTML = '<div class="slots-grid" id="slotsGrid"></div>';
   const grid = document.getElementById('slotsGrid');
 
   slots.forEach(slot => {
-    const taken = countBookings(serviceKey, slot);
+    const taken = countBookings(serviceKey, slot); // sync now, reads the cache
     const full = taken >= s.capacity;
     const btn = document.createElement('button');
     btn.className = 'slot-btn' + (full ? ' full' : '');
@@ -110,11 +134,8 @@ function openBooking(serviceKey){
   const btn = document.getElementById('confirmBookingBtn');
   btn.textContent = 'متابعة: تأكيد العربون';
   btn.disabled = true;
-  openModal('bookingModal');
 }
 
-// step 1 -> step 2: show the CliQ deposit instructions once a time slot is picked
-// step 2 -> finalize: only saves the booking once the person confirms they've paid the deposit
 function proceedBooking(){
   if(bookingStep === 1){
     if(!currentService || !selectedSlot) return;
@@ -160,8 +181,9 @@ function handleScreenshotUpload(event){
   reader.readAsDataURL(file);
 }
 
-function finalizeBooking(){
+async function finalizeBooking(){
   if(!currentService || !selectedSlot) return;
+
   const phone = localStorage.getItem('q_customer_phone');
   if(!phone){
     pendingService = currentService;
@@ -174,9 +196,37 @@ function finalizeBooking(){
     showToast('يرجى إرفاق سكرين شوت التحويل أولًا');
     return;
   }
+
   const s = SERVICES[currentService];
+  const confirmBtn = document.getElementById('confirmBookingBtn');
+  confirmBtn.disabled = true;
+  confirmBtn.textContent = 'جاري التأكد من توفر الموعد...';
+
+  // re-check against FRESH data right before writing — closes most of the
+  // race window where two people book the same slot at nearly the same time.
+  // (not 100% atomic — a true fix needs a Firestore transaction — but this
+  // catches the vast majority of real-world double-booking cases for a
+  // single-location shop like this.)
+  let freshBookings = [];
+  try{
+    freshBookings = await loadBookings();
+  }catch(err){
+    console.error('Firestore re-check failed', err);
+    showToast('تعذّر التأكد من توفر الموعد، حاول مرة ثانية');
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'تأكيد الحجز';
+    return;
+  }
+  const takenNow = freshBookings.filter(b => b.service === currentService && b.slot === selectedSlot).length;
+  if(takenNow >= s.capacity){
+    showToast('عذرًا، هذا الموعد امتلأ للتو — اختر وقتًا آخر');
+    bookingsCache = freshBookings;
+    backToSlots();
+    openBooking(currentService); // re-render slots with the up-to-date counts
+    return;
+  }
+
   const booking = {
-    id: Date.now(),
     service: currentService,
     serviceName: s.name,
     price: s.price,
@@ -186,9 +236,19 @@ function finalizeBooking(){
     phone: phone,
     depositProof: true,
   };
-  saveBookingRecord(booking);
-  closeModal('bookingModal');
-  showTicket(booking);
+
+  confirmBtn.textContent = 'جاري الحجز...';
+
+  try{
+    await saveBookingRecord(booking);
+    closeModal('bookingModal');
+    showTicket(booking);
+  }catch(err){
+    console.error('Firestore save failed', err);
+    showToast('صار خطأ أثناء الحجز، حاول مرة ثانية');
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'تأكيد الحجز';
+  }
 }
 
 function showTicket(b){
@@ -204,17 +264,30 @@ function showTicket(b){
   openModal('ticketModal');
 }
 
-function renderAdmin(){
-  const all = loadBookings().slice().reverse();
+async function renderAdmin(){
   const el = document.getElementById('adminList');
+  el.innerHTML = '<p style="color:var(--cream-dim);">جاري التحميل...</p>';
+
+  let all = [];
+  try{
+    all = await loadBookings();
+  }catch(err){
+    console.error('Firestore admin load failed', err);
+    el.innerHTML = '<p style="color:var(--cream-dim);">تعذّر تحميل الحجوزات.</p>';
+    return;
+  }
+
+  all.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
   if(all.length === 0){
     el.innerHTML = '<p style="color:var(--cream-dim);">لا توجد حجوزات مسجّلة بعد.</p>';
     return;
   }
+
   el.innerHTML = all.map(b => `
     <div style="display:flex; justify-content:space-between; gap:10px; padding:12px 0; border-bottom:1px solid rgba(237,230,214,0.1);">
       <div>
-        <div style="font-weight:700; color:var(--cream);">${b.serviceName} — ${b.name} ${b.depositProof ? '<span style=\"color:var(--gold-light); font-size:0.78rem;\">✓ سكرين مرفق</span>' : ''}</div>
+        <div style="font-weight:700; color:var(--cream);">${b.serviceName} — ${b.name} ${b.depositProof ? '<span style="color:var(--gold-light); font-size:0.78rem;">✓ سكرين مرفق</span>' : ''}</div>
         <div style="color:var(--cream-dim); font-size:0.85rem;" dir="ltr">${b.phone}</div>
       </div>
       <div style="text-align:end; color:var(--gold-light); font-weight:700;">${b.slot}<div style="color:var(--cream-dim); font-size:0.8rem;">${b.date}</div></div>
@@ -241,7 +314,7 @@ function showToast(msg){
 
 // Scroll reveal
 const observer = new IntersectionObserver((entries) => {
-  entries.forEach(e => { if(e.isIntersecting){ e.target.classList.add('in-view'); } });
+  entries.forEach(e => { if(e.isIntersecting) e.target.classList.add('in-view'); });
 }, { threshold: 0.12 });
 document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 
@@ -249,6 +322,8 @@ document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 document.querySelectorAll('.modal-overlay').forEach(ov => {
   ov.addEventListener('click', (e) => { if(e.target === ov) ov.classList.remove('active'); });
 });
+
+// Expose to window — required for every inline onclick="..." in the HTML to find these
 window.openBooking = openBooking;
 window.sendCode = sendCode;
 window.closeModal = closeModal;

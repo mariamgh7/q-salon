@@ -1,4 +1,3 @@
-
 const SERVICES = {
   haircut: { name:'قص الشعر', price:5, duration:45, interval:60, capacity:2 },
   beard:   { name:'تشذيب اللحية', price:3, duration:30, interval:45, capacity:2 },

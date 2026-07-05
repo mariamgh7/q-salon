@@ -246,3 +246,5 @@ document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 document.querySelectorAll('.modal-overlay').forEach(ov => {
   ov.addEventListener('click', (e) => { if(e.target === ov) ov.classList.remove('active'); });
 });
+import { db } from "./firebase.js";
+console.log("Firebase connected:", db);
